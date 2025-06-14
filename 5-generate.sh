@@ -7,7 +7,7 @@ huggingface-cli login --token $HF_TOKEN
 
 LANGUAGES=("bo" "mt" "it" "es" "de" "ja" "ar" "zh" "af" "nl" "fr" "pt" "ru" "ko" "hi" "tr" "pl" "sv" "da" "no")
 
-SCRIPT="batch_generation.py"
+SCRIPT="src/batch_generation.py"
 
 MODEL="meta-llama/Meta-Llama-3-8B"
 ACTIVATION_MASK="activation_mask/llama-3"

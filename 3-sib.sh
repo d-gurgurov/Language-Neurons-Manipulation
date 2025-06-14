@@ -1,0 +1,44 @@
+#!/bin/bash
+
+pip install transformers 
+pip install vllm==0.2.7
+pip install evaluate transformers datasets
+
+HF_TOKEN=*
+huggingface-cli login --token $HF_TOKEN
+
+export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
+
+MODEL="meta-llama/Meta-Llama-3-8B"
+ACTIVATION_DIR="activation_mask/llama-3"
+
+langs=(
+  "afr_Latn"  # af
+  "mlt_Latn"  # mt
+  "bod_Tibt"  # bo
+  "ita_Latn"  # it
+  "spa_Latn"  # es
+  "deu_Latn"  # de
+  "jpn_Jpan"  # ja
+  "arb_Arab"  # ar
+  "zho_Hans"  # zh
+  "nld_Latn"  # nl
+  "fra_Latn"  # fr
+  "por_Latn"  # pt
+  "rus_Cyrl"  # ru
+  "kor_Hang"  # ko
+  "hin_Deva"  # hi
+  "tur_Latn"  # tr
+  "pol_Latn"  # pl
+  "swe_Latn"  # sv
+  "dan_Latn"  # da
+  "nob_Latn"  # no
+)
+
+for test_lang in "${langs[@]}"; do
+  for activate_lang in "${langs[@]}"; do
+    echo "Running test_lang=$test_lang activate_lang=$activate_lang"
+    python src/sib.py -m "$MODEL" -a "$ACTIVATION_DIR" \
+      --test_lang "$test_lang" --activate_lang "$activate_lang"
+  done
+done
