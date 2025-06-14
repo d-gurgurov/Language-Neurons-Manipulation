@@ -1,4 +1,4 @@
-# Language Neuron Identification and Manipulation (LAPE Method)
+# Language Neuron Identification and Manipulation
 
 This repository provides code for identifying and manipulating language-specific neurons in transformer-based language models using the **LAPE (Language Probability Entropy)** method introduced by [Tang et al. (2024)](https://arxiv.org/abs/2402.16438).
 
