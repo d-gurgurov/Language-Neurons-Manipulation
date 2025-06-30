@@ -20,14 +20,31 @@ over_zero = torch.zeros(num_layers, intermediate_size, dtype=torch.int32).to('cu
 
 def factory(idx):
     def llama_forward(self, x):
-        gate_up, _ = self.gate_up_proj(x)  # b, l, 2i
+        # print(f"[DEBUG] x shape: {x.shape}")  # print shape of input to MLP
+
+        gate_up, _ = self.gate_up_proj(x)
+        # print(f"[DEBUG] gate_up shape: {gate_up.shape}")  # print shape after projection
+
         i = gate_up.size(-1)
-        gate_up[:, :, : i // 2] = torch.nn.SiLU()(gate_up[:, :, : i // 2])
-        activation = gate_up[:, :, : i // 2].float() # b, l, i
-        over_zero[idx, :] += (activation > 0).sum(dim=(0,1))
-        x = gate_up[:, :, : i // 2] * gate_up[:, :, i // 2 :]
+
+        if gate_up.dim() == 3:
+            # expected shape: (batch, seq_len, 2*intermediate_size)
+            gate_up[:, :, : i // 2] = torch.nn.SiLU()(gate_up[:, :, : i // 2])
+            activation = gate_up[:, :, : i // 2].float()
+            over_zero[idx, :] += (activation > 0).sum(dim=(0, 1))
+            x = gate_up[:, :, : i // 2] * gate_up[:, :, i // 2 :]
+        elif gate_up.dim() == 2:
+            # expected shape: (batch*seq_len, 2*intermediate_size)
+            gate_up[:, : i // 2] = torch.nn.SiLU()(gate_up[:, : i // 2])
+            activation = gate_up[:, : i // 2].float()
+            over_zero[idx, :] += (activation > 0).sum(dim=0)
+            x = gate_up[:, : i // 2] * gate_up[:, i // 2 :]
+        else:
+            raise ValueError(f"Unexpected gate_up shape: {gate_up.shape}")
+
         x, _ = self.down_proj(x)
         return x
+
 
     def bloom_forward(self, x: torch.Tensor):
         x, _ = self.dense_h_to_4h(x)
@@ -44,14 +61,14 @@ def factory(idx):
 
 for i in range(num_layers):
     if is_llama:
-        obj = model.llm_engine.driver_worker.model_runner.model.model.layers[i].mlp
+        obj = model.llm_engine.model_executor.driver_worker.model_runner.model.model.layers[i].mlp
     else:
-        obj = model.llm_engine.driver_worker.model_runner.model.transformer.h[i].mlp
+        obj = model.llm_engine.engine_core.model.model.transformer.h[i].mlp
     obj.forward = MethodType(factory(i), obj)
 
 lang = args.lang
 if is_llama:
-    ids = torch.load(f'data/id.{lang}.train.llama-3')
+    ids = torch.load(f'data_llama_3-1/id.{lang}.train.llama-3.1')
 else:
     ids = torch.load(f'data/id.{lang}.train.bloom')
 l = ids.size(0)
@@ -63,6 +80,4 @@ output = model.generate(prompt_token_ids=input_ids.tolist(), sampling_params=Sam
 output = dict(n=l, over_zero=over_zero.to('cpu'))
 
 if is_llama:
-    torch.save(output, f'data/activation.{lang}.train.llama-3')
-else:
-    torch.save(output, f'data/activation.{lang}.train.bloom-7b')
+    torch.save(output, f'data_llama_3-1/activation.{lang}.train.llama-3.1')
