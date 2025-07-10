@@ -26,5 +26,5 @@ export CUDA_VISIBLE_DEVICES=0,1 # if needed
 for lang in "${languages[@]}"
 do
     echo "Running activation.py for language: $lang"
-    python activation.py -m $model -l $lang -s "nemo nemo"
+    python src/activation.py -m $model -l $lang -s "nemo nemo"
 done

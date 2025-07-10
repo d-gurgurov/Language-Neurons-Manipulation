@@ -10,7 +10,7 @@ for RATIO in {1..5}; do
   OUTPUT="flores/${MODEL_NAME}_${RATIO}"
 
   echo "Processing ratio $RATIO..."
-  python vis_flores.py --input_path "$INPUT" --output_path "$OUTPUT"
+  python src/vis_flores.py --input_path "$INPUT" --output_path "$OUTPUT"
 done
 
 MODEL="mistralai/Mistral-Nemo-Base-2407"
@@ -21,5 +21,5 @@ for RATIO in {1..5}; do
   OUTPUT="flores/${MODEL_NAME}_${RATIO}"
 
   echo "Processing ratio $RATIO..."
-  python vis_flores.py --input_path "$INPUT" --output_path "$OUTPUT"
+  python src/vis_flores.py --input_path "$INPUT" --output_path "$OUTPUT"
 done

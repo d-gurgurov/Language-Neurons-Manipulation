@@ -19,7 +19,7 @@ STRENGTH=-1.5
 for RATIO in {1..5}; do
     echo "Running with RATIO=$RATIO"
     
-    python fallbacks.py -m "$MODEL" \
+    python src/fallbacks.py -m "$MODEL" \
                         --activation_mask "activation_mask/${ACTIVATION_PATH}-${RATIO}" \
                         --progressive_only \
                         --output_dir "fallbacks/${METHOD}${STRENGTH}/${MODEL_NAME}_${RATIO}" \

@@ -6,7 +6,7 @@ pip install numpy==1.26.4 # --> required by Nemo
 HF_TOKEN=*
 huggingface-cli login --token $HF_TOKEN
 
-SCRIPT="batch_generation.py"
+SCRIPT="src/batch_generation.py"
 MODEL="meta-llama/Llama-3.1-8B" # mistralai/Mistral-Nemo-Base-2407 meta-llama/Llama-3.1-8B
 MODEL_NAME=${MODEL#*/}
 ACTIVATIONS_PATH="llama_3-1 llama-3.1" # llama_3-1 llama-3.1 | nemo nemo

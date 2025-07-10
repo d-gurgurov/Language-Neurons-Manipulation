@@ -10,7 +10,7 @@ for RATIO in {1..5}; do
   OUTPUT="xnli/${MODEL_NAME}_${RATIO}"
 
   echo "Processing ratio $RATIO..."
-  python vis_xnli.py --input_path "$INPUT" --output_path "$OUTPUT"
+  python src/vis_xnli.py --input_path "$INPUT" --output_path "$OUTPUT"
 done
 
 MODEL="mistralai/Mistral-Nemo-Base-2407"
@@ -21,5 +21,5 @@ for RATIO in {1..5}; do
   OUTPUT="xnli/${MODEL_NAME}_${RATIO}"
 
   echo "Processing ratio $RATIO..."
-  python vis_xnli.py --input_path "$INPUT" --output_path "$OUTPUT"
+  python src/vis_xnli.py --input_path "$INPUT" --output_path "$OUTPUT"
 done

@@ -12,5 +12,5 @@ for i in "${!rates[@]}"; do
     RATE=${rates[$i]}
     SAVE_PATH="llama-3.1-$((i + 1))"
     echo "Running with top_rate=$RATE, save_path=$SAVE_PATH" # llama_3-1 llama-3.1
-    python identify.py --top_rate $RATE --activations "llama_3-1 llama-3.1" --save_path "$SAVE_PATH"
+    python src/identify.py --top_rate $RATE --activations "llama_3-1 llama-3.1" --save_path "$SAVE_PATH"
 done
