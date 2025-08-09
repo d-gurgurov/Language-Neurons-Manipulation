@@ -33,26 +33,67 @@ def get_test_questions():
         "en": ["Q: How are you today? \nA:", "Q: What is your name? \nA:", "Q: What year is it? \nA:", "Q: What is your favorite color? \nA:", "Q: What is the weather like? \nA:", "Q: Where are you from? \nA:"],
     }
 
+# def compute_average_activations():
+#     """Compute average activation values for each language"""
+#     n, over_zero = [], []
+#     lang_names = ["bo", "mt", "it", "es", "de", "ja", "ar", "zh", "af", "nl", "fr", "pt", "ru", "ko", "hi", "tr", "pl", "sv", "da", "no", "en"]
+    
+#     for lang in lang_names:
+#         data = torch.load(f'data_{activations_path[0]}/activation.{lang}.train.{activations_path[1]}')
+#         n.append(data['n'])
+#         over_zero.append(data['over_zero'])
+
+#     n = torch.tensor(n)
+#     over_zero = torch.stack(over_zero, dim=-1)
+    
+#     activation_probs = over_zero / n  # layer x inter x lang_num
+    
+#     lang_to_idx = {lang: idx for idx, lang in enumerate(lang_names)}
+    
+#     return activation_probs, lang_to_idx, lang_names
+
 def compute_average_activations():
     """Compute average activation values for each language"""
-    n, over_zero = [], []
+    n, average_activations = [], []
     lang_names = ["bo", "mt", "it", "es", "de", "ja", "ar", "zh", "af", "nl", "fr", "pt", "ru", "ko", "hi", "tr", "pl", "sv", "da", "no", "en"]
     
     for lang in lang_names:
         data = torch.load(f'data_{activations_path[0]}/activation.{lang}.train.{activations_path[1]}')
         n.append(data['n'])
-        over_zero.append(data['over_zero'])
+        average_activations.append(data['average_activations'])
 
     n = torch.tensor(n)
-    over_zero = torch.stack(over_zero, dim=-1)
-    
-    activation_probs = over_zero / n  # layer x inter x lang_num
+    average_activations = torch.stack(average_activations, dim=-1)  # layer x inter x lang_num
     
     lang_to_idx = {lang: idx for idx, lang in enumerate(lang_names)}
     
-    return activation_probs, lang_to_idx, lang_names
+    return average_activations, lang_to_idx, lang_names
 
-def factory(layer_idx, deactivate_indices=None, activate_indices=None, boost_values=None):
+def compute_diffmean_values(avg_activations, layer_idx, activate_indices_cpu, activate_idx):
+    """Compute difference between target language mean and mean of all other languages"""
+    if len(activate_indices_cpu) == 0:
+        return torch.tensor([]).to('cuda')
+    
+    # Get target language activations for this layer and these indices
+    target_activations = avg_activations[layer_idx, activate_indices_cpu, activate_idx]
+    
+    # Get all other languages' activations for this layer and these indices
+    # Shape: [num_indices, num_other_languages]
+    other_langs_activations = avg_activations[layer_idx, activate_indices_cpu, :]
+    other_langs_activations = torch.cat([
+        other_langs_activations[:, :activate_idx], 
+        other_langs_activations[:, activate_idx+1:]
+    ], dim=1)
+    
+    # Compute mean across other languages
+    other_langs_mean = other_langs_activations.mean(dim=1)
+    
+    # Compute difference
+    diffmean_values = target_activations - other_langs_mean
+    
+    return diffmean_values.to('cuda')
+
+def factory(layer_idx, deactivate_indices=None, activate_indices=None, boost_values=None, activation_method="additive"):
     def llama_forward(self, x):
         gate_up, _ = self.gate_up_proj(x)
         i = gate_up.size(-1)
@@ -65,9 +106,15 @@ def factory(layer_idx, deactivate_indices=None, activate_indices=None, boost_val
 
             if activate_indices is not None and len(activate_indices) > 0 and boost_values is not None:
                 boost_tensor = boost_values.to(silu_output.dtype).unsqueeze(0).unsqueeze(0)
-                silu_output[:, :, activate_indices] += boost_tensor
-                # trying replacement
-                silu_output[:, activate_indices] = boost_tensor
+                
+                if activation_method == "additive":
+                    silu_output[:, :, activate_indices] += args.activation_strength * boost_tensor
+                elif activation_method == "replacement":
+                    silu_output[:, :, activate_indices] = boost_tensor
+                elif activation_method == "diffmean":
+                    silu_output[:, :, activate_indices] += boost_tensor
+                else:
+                    raise ValueError(f"Unknown activation method: {activation_method}")
 
             x = silu_output * gate_up[:, :, i // 2:]
 
@@ -79,9 +126,15 @@ def factory(layer_idx, deactivate_indices=None, activate_indices=None, boost_val
 
             if activate_indices is not None and len(activate_indices) > 0 and boost_values is not None:
                 boost_tensor = boost_values.to(silu_output.dtype).unsqueeze(0)
-                silu_output[:, activate_indices] += boost_tensor
-                # trying replacement
-                # silu_output[:, activate_indices] = boost_tensor
+                
+                if activation_method == "additive":
+                    silu_output[:, activate_indices] += args.activation_strength * boost_tensor
+                elif activation_method == "replacement":
+                    silu_output[:, activate_indices] = boost_tensor
+                elif activation_method == "diffmean":
+                    silu_output[:, activate_indices] += boost_tensor
+                else:
+                    raise ValueError(f"Unknown activation method: {activation_method}")
 
             x = silu_output * gate_up[:, i // 2:]
 
@@ -93,7 +146,7 @@ def factory(layer_idx, deactivate_indices=None, activate_indices=None, boost_val
 
     return llama_forward
 
-def apply_intervention(model, activation_masks, avg_activations, lang_to_idx, deactivate_lang, activate_lang, is_llama):
+def apply_intervention(model, activation_masks, avg_activations, lang_to_idx, deactivate_lang, activate_lang, is_llama, activation_method="additive"):
     """Apply language intervention to the model"""
     
     # Handle deactivation
@@ -112,7 +165,7 @@ def apply_intervention(model, activation_masks, avg_activations, lang_to_idx, de
         raise ValueError(f"Activate language '{activate_lang}' not found in available languages: {list(lang_to_idx.keys())}")
     activate_idx = lang_to_idx[activate_lang]
     activate_mask = activation_masks[activate_idx]
-    print(f"Activating {activate_lang} neurons (index {activate_idx})")
+    print(f"Activating {activate_lang} neurons (index {activate_idx}) using method: {activation_method}")
 
     # Store original forward methods to restore later
     original_forwards = []
@@ -129,9 +182,13 @@ def apply_intervention(model, activation_masks, avg_activations, lang_to_idx, de
         activate_indices_cpu = activate_mask[layer_idx]
         activate_indices = activate_indices_cpu.to('cuda')
         
-        # Compute boost values for this layer (average activation for target language neurons)
+        # Compute boost values based on activation method
         if len(activate_indices_cpu) > 0:
-            boost_values = avg_activations[layer_idx, activate_indices_cpu, activate_idx].to('cuda')
+            if activation_method == "diffmean":
+                boost_values = compute_diffmean_values(avg_activations, layer_idx, activate_indices_cpu, activate_idx)
+            else:
+                # For additive and replacement methods, use the original approach
+                boost_values = avg_activations[layer_idx, activate_indices_cpu, activate_idx].to('cuda')
         else:
             boost_values = torch.tensor([]).to('cuda')
         
@@ -144,7 +201,7 @@ def apply_intervention(model, activation_masks, avg_activations, lang_to_idx, de
         original_forwards.append(obj.forward)
         
         # Apply new forward method
-        obj.forward = MethodType(factory(layer_idx, deactivate_indices, activate_indices, boost_values), obj)
+        obj.forward = MethodType(factory(layer_idx, deactivate_indices, activate_indices, boost_values, activation_method), obj)
     
     return original_forwards
 
@@ -157,20 +214,20 @@ def restore_original_forwards(model, original_forwards, is_llama):
             obj = model.llm_engine.model_executor.driver_worker.model_runner.model.model.layers[layer_idx].mlp
         obj.forward = original_forward
 
-def run_single_experiment(model, sampling_params, test_questions, deactivate_lang, activate_lang, activation_masks, avg_activations, lang_to_idx, is_llama, deactivation=True):
+def run_single_experiment(model, sampling_params, test_questions, deactivate_lang, activate_lang, activation_masks, avg_activations, lang_to_idx, is_llama, deactivation=True, activation_method="additive"):
     """Run a single language intervention experiment"""
     
     print(f"\n{'='*60}")
     if not deactivation:
-        print(f"Experiment: Activation only → {activate_lang}")
+        print(f"Experiment: Activation only → {activate_lang} (method: {activation_method})")
     else:
-        print(f"Experiment: {deactivate_lang} → {activate_lang}")
+        print(f"Experiment: {deactivate_lang} → {activate_lang} (method: {activation_method})")
     print(f"{'='*60}")
     
     if not deactivation:
-        original_forwards = apply_intervention(model, activation_masks, avg_activations, lang_to_idx, "none", activate_lang, is_llama)
+        original_forwards = apply_intervention(model, activation_masks, avg_activations, lang_to_idx, "none", activate_lang, is_llama, activation_method)
     else:
-        original_forwards = apply_intervention(model, activation_masks, avg_activations, lang_to_idx, deactivate_lang, activate_lang, is_llama)
+        original_forwards = apply_intervention(model, activation_masks, avg_activations, lang_to_idx, deactivate_lang, activate_lang, is_llama, activation_method)
 
     test_prompts = test_questions[deactivate_lang]
     
@@ -199,6 +256,7 @@ def run_single_experiment(model, sampling_params, test_questions, deactivate_lan
     results = {
         "deactivate_language": deactivate_lang if deactivate_lang and deactivate_lang.lower() != "none" else None,
         "activate_language": activate_lang,
+        "activation_method": activation_method,
         "model": args.model,
         "results": all_results
     }
@@ -207,11 +265,11 @@ def run_single_experiment(model, sampling_params, test_questions, deactivate_lan
     os.makedirs(output_dir, exist_ok=True)
 
     if args.no_deactivation:
-        output_dir = output_dir + "/activate"
+        output_dir = output_dir + f"/activate_{activation_method}"
         os.makedirs(output_dir, exist_ok=True)
         output_file = f"{output_dir}/{deactivate_lang}_to_{activate_lang}.json"
     else:
-        output_dir = output_dir + "/deactivate_activate"
+        output_dir = output_dir + f"/deactivate_activate_{activation_method}"
         os.makedirs(output_dir, exist_ok=True)
         output_file = f"{output_dir}/{deactivate_lang}_to_{activate_lang}.json"
     
@@ -233,7 +291,9 @@ def main():
     parser.add_argument("--activate_lang", type=str, default="ru", help="Language to activate (single mode)")
     parser.add_argument("--no_deactivation", action='store_true', help="Skip deactivation, only do activation (batch mode only)")
     parser.add_argument("--languages", nargs='+', default=["bo", "mt", "it", "es", "de", "ja", "ar", "zh", "af", "nl", "fr", "pt", "ru", "ko", "hi", "tr", "pl", "sv", "da", "no", "en"], help="Languages to test")
-    parser.add_argument("--deactivation_strength", type=float, default=-1.0) 
+    parser.add_argument("--deactivation_strength", type=float, default=-1.0)
+    parser.add_argument("--activation_strength", type=float, default=1.0)
+    parser.add_argument("--activation_method", type=str, default="additive", choices=["additive", "replacement", "diffmean"], help="Method for activation intervention")
     
     global args
     args = parser.parse_args()
@@ -242,6 +302,7 @@ def main():
     activations_path = args.activations_path.split(" ")
     
     print("Loading model and data...")
+    print(f"Using activation method: {args.activation_method}")
 
     test_questions = get_test_questions() 
     model = LLM(model=args.model, tensor_parallel_size=torch.cuda.device_count(), enforce_eager=True)
@@ -287,14 +348,14 @@ def main():
                         results = run_single_experiment(
                             model, sampling_params, test_questions, 
                             deactivate_lang, activate_lang, 
-                            activation_masks, avg_activations, lang_to_idx, is_llama, deactivation=False
+                            activation_masks, avg_activations, lang_to_idx, is_llama, deactivation=False, activation_method=args.activation_method
                         )
                         all_experiment_results.append(results)
                     else:
                         results = run_single_experiment(
                             model, sampling_params, test_questions, 
                             deactivate_lang, activate_lang, 
-                            activation_masks, avg_activations, lang_to_idx, is_llama
+                            activation_masks, avg_activations, lang_to_idx, is_llama, activation_method=args.activation_method
                         )
                         all_experiment_results.append(results)
                     
@@ -306,7 +367,7 @@ def main():
         results = run_single_experiment(
             model, sampling_params, test_questions, 
             args.deactivate_lang, args.activate_lang, 
-            activation_masks, avg_activations, lang_to_idx, is_llama
+            activation_masks, avg_activations, lang_to_idx, is_llama, activation_method=args.activation_method
         )
         print("Single experiment complete!")
 
