@@ -160,7 +160,7 @@ def compute_squad_metrics(predictions: List[str], references: List[List[str]]) -
 
 def compute_average_activations(activations_path):
     """Compute average activation values for each language"""
-    n, over_zero = [], []
+    n, over_zero, average_activations = [], [], []
     
     # Use the old codes for loading activation data (assuming that's how they're stored)
     old_lang_names = ["bo", "mt", "it", "es", "de", "ja", "ar", "zh", "af", "nl", "fr", "pt", "ru", "ko", "hi", "tr", "pl", "sv", "da", "no", "en"]
@@ -169,9 +169,11 @@ def compute_average_activations(activations_path):
         data = torch.load(f'data_{activations_path[0]}/activation.{lang}.train.{activations_path[1]}')
         n.append(data['n'])
         over_zero.append(data['over_zero'])
+        average_activations.append(data['average_activations'])
 
     n = torch.tensor(n)
     over_zero = torch.stack(over_zero, dim=-1)
+    average_activations = torch.stack(average_activations, dim=-1)  # layer x inter x lang_num
     
     # Compute average activation probabilities per language
     activation_probs = over_zero / n
@@ -179,7 +181,8 @@ def compute_average_activations(activations_path):
     # Create mappings
     old_to_idx = {lang: idx for idx, lang in enumerate(old_lang_names)}
     
-    return activation_probs, old_to_idx, old_lang_names
+    return average_activations, old_to_idx, old_lang_names
+
 
 def evaluate_xquad(model, language: str, sampling_params, max_samples: int = None) -> Dict:
     """Evaluate model on XQUAD extractive QA task"""
