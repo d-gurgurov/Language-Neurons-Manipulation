@@ -17,7 +17,7 @@ export VLLM_USE_V1=0
 
 huggingface-cli login --token $HF_TOKEN --add-to-git-credential
 
-languages=("bo" "mt" "it" "es" "de" "ja" "ar")
+languages=("bo" "mt" "it" "es" "de" "ja" "ar" "zh" "af" "nl" "fr" "pt" "ru" "ko" "hi" "tr" "pl" "sv" "da" "no" "en")
 
 model="mistralai/Mistral-Nemo-Base-2407"
 
