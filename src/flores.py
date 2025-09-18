@@ -119,30 +119,25 @@ def compute_bleu_score(reference: str, candidate: str) -> float:
     score = sentence_bleu(candidate, [reference])
     return score.score / 100.0
 
+
 def compute_average_activations(activations_path):
     """Compute average activation values for each language"""
-    n, over_zero = [], []
-    
-    # Use the old codes for loading activation data (assuming that's how they're stored)
+    n, average_activations = [], []
     old_lang_names = ["bo", "mt", "it", "es", "de", "ja", "ar", "zh", "af", "nl", "fr", "pt", "ru", "ko", "hi", "tr", "pl", "sv", "da", "no", "en"]
     
     for lang in old_lang_names:
         data = torch.load(f'data_{activations_path[0]}/activation.{lang}.train.{activations_path[1]}')
         n.append(data['n'])
-        over_zero.append(data['over_zero'])
+        average_activations.append(data['average_activations'])
 
     n = torch.tensor(n)
-    over_zero = torch.stack(over_zero, dim=-1)
+    average_activations = torch.stack(average_activations, dim=-1)  # layer x inter x lang_num
     
-    # Compute average activation probabilities per language
-    activation_probs = over_zero / n
-    
-    # Create mappings for both old and new codes
     lang_mapping = get_language_mapping()
     old_to_idx = {lang: idx for idx, lang in enumerate(old_lang_names)}
     flores_to_idx = {lang_mapping[old_lang]: idx for old_lang, idx in old_to_idx.items()}
     
-    return activation_probs, old_to_idx, flores_to_idx, old_lang_names, lang_mapping
+    return average_activations, old_to_idx, flores_to_idx, old_lang_names, lang_mapping
 
 def evaluate_translation(model, source_lang: str, target_lang: str, sampling_params, max_samples: int = None) -> Dict:
     """Evaluate model on FLORES-200 translation task"""
